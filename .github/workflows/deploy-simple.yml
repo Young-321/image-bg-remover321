@@ -1,0 +1,44 @@
+name: Deploy to Cloudflare (Simple)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Deploy Worker
+        run: |
+          npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REMOVE_BG_API_KEY: ${{ secrets.REMOVE_BG_API_KEY }}
+
+      - name: Build frontend
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_WORKER_URL: ${{ secrets.NEXT_PUBLIC_WORKER_URL }}
+
+      - name: Upload to Cloudflare Pages
+        run: |
+          # 这里可以添加上传到 Pages 的逻辑
+          echo "Frontend built in 'out/' directory"
+          echo "Manual upload to Cloudflare Pages required"
+          echo "Or use cloudflare/pages-action for automatic deployment"
