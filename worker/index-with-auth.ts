@@ -103,7 +103,8 @@ export default {
         });
       }
       
-      const redirectUri = `${url.origin}/auth/callback`;
+      // ✅ 使用自定义域名
+      const redirectUri = 'https://www.alltoolsimagebgremove.shop/auth/callback';
       
       try {
         // 交换 token

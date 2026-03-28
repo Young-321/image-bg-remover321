@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
-import { Upload, Image as ImageIcon, Download, RefreshCw, X, CheckCircle2 } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { Upload, Image as ImageIcon, Download, RefreshCw, X, CheckCircle2, LogIn } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -17,6 +17,77 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // 处理 OAuth 回调
+  useEffect(() => {
+    try {
+      // 检查 URL 中是否有 OAuth 响应
+      const hash = window.location.hash.substring(1);
+      if (!hash) return;
+      
+      const params = new URLSearchParams(hash);
+      
+      const accessToken = params.get('access_token');
+      const idToken = params.get('id_token');
+      const error = params.get('error');
+      const state = params.get('state');
+      
+      console.log('OAuth 回调参数:', { 
+        hasAccessToken: !!accessToken, 
+        hasIdToken: !!idToken, 
+        error: error,
+        state: state
+      });
+      
+      if (error) {
+        setError(`OAuth 错误: ${error}`);
+        // 清除 URL 中的错误参数
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      }
+      
+      if (accessToken && idToken) {
+        // 安全地解码 ID Token 获取用户信息
+        try {
+          // JWT 解码 - 安全处理
+          const tokenParts = idToken.split('.');
+          if (tokenParts.length !== 3) {
+            console.warn('ID Token 格式不正确');
+            return;
+          }
+          
+          // 解码 base64 URL
+          const payloadBase64 = tokenParts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payloadJson = decodeURIComponent(atob(payloadBase64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          
+          const payload = JSON.parse(payloadJson);
+          
+          if (payload && payload.email) {
+            setIsLoggedIn(true);
+            setUserEmail(payload.email);
+            
+            // 清除 URL 中的 OAuth 参数
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            console.log('登录成功:', payload.email);
+            
+            // 显示成功消息
+            setError(null);
+          }
+        } catch (err) {
+          console.error('解析 token 失败:', err);
+          setError('登录处理失败，请重试');
+        }
+      }
+    } catch (err) {
+      console.error('OAuth 处理出错:', err);
+      setError('OAuth 处理错误，请刷新页面重试');
+    }
+  }, []);
 
   const handleFile = useCallback((file: File) => {
     console.log('处理文件:', file.name, file.type, file.size);
@@ -56,6 +127,46 @@ export default function Home() {
     setDragOver(false);
   }, []);
 
+  const handleGoogleLogin = () => {
+    // ✅ **使用自定义域名 - 已在 Google Cloud Console 配置**
+    console.log('🚀 开始 Google OAuth 登录流程 (使用自定义域名)...');
+    
+    // ✅ 使用已验证的客户端 ID
+    const clientId = '492775448989-f5oafsq8cum432o5f27foo8921mgplqb.apps.googleusercontent.com';
+    
+    // ✅ **使用自定义域名 - https://www.alltoolsimagebgremove.shop**
+    const redirectUri = 'https://www.alltoolsimagebgremove.shop';
+    
+    // ✅ 简化的 scope
+    const scope = 'openid email';
+    
+    // ✅ 生成 state 参数
+    const state = 'custom_domain_' + Date.now();
+    
+    // ✅ 构建 OAuth URL - 确保正确编码
+    const encodedRedirect = encodeURIComponent(redirectUri);
+    const encodedScope = encodeURIComponent(scope);
+    
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodedRedirect}&response_type=token&scope=${encodedScope}&state=${state}&prompt=consent`;
+    
+    console.log('🔗 生成的 OAuth URL (前150字符):', authUrl.substring(0, 150));
+    console.log('📋 配置详情 (使用自定义域名):');
+    console.log('  - 客户端ID:', clientId);
+    console.log('  - 重定向URI (已配置):', redirectUri);
+    console.log('  - 权限范围:', scope);
+    console.log('  - 状态参数:', state);
+    console.log('  - ✅ 已在 Google Cloud Console 配置');
+    
+    // 🔧 测试：在当前窗口重定向（避免弹出窗口拦截）
+    window.location.href = authUrl;
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setUserEmail(null);
+    // 这里可以添加清除 cookie/localStorage 的逻辑
+  };
+
   const processImage = async () => {
     if (!originalImage) return;
 
@@ -72,8 +183,7 @@ export default function Home() {
       formData.append('size', 'auto');
 
       // 调用 Cloudflare Worker
-      // 在生产环境中，Worker 会处理 API 调用
-      const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL || 'https://bg-remover-worker.your-account.workers.dev';
+      const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL || 'https://bg-remover-worker.yangyong900829.workers.dev';
       
       console.log('调用 Worker:', workerUrl);
       
@@ -125,14 +235,37 @@ export default function Home() {
               BG Remover
             </span>
           </div>
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-slate-600 hover:text-slate-900 transition-colors"
-          >
-            GitHub
-          </a>
+          
+          <div className="flex items-center gap-4">
+            {isLoggedIn ? (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-600">{userEmail}</span>
+                <button
+                  onClick={handleLogout}
+                  className="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  退出登录
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleGoogleLogin}
+                className="flex items-center gap-2 px-4 py-2 bg-white text-slate-700 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors shadow-sm"
+              >
+                <LogIn className="w-4 h-4" />
+                使用 Google 登录
+              </button>
+            )}
+            
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              GitHub
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -150,6 +283,26 @@ export default function Home() {
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                 每月前 50 张免费
               </div>
+              
+              {!isLoggedIn && (
+                <div className="mt-6">
+                  <p className="text-sm text-slate-500 mb-2">登录后可享受更多功能：</p>
+                  <ul className="text-sm text-slate-600 text-left inline-block">
+                    <li className="flex items-center gap-2 mb-1">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                      保存处理历史
+                    </li>
+                    <li className="flex items-center gap-2 mb-1">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                      批量处理功能
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                      自定义输出设置
+                    </li>
+                  </ul>
+                </div>
+              )}
             </div>
 
             <div
@@ -316,6 +469,7 @@ export default function Home() {
       <footer className="mt-20 py-8 border-t border-slate-200">
         <div className="max-w-6xl mx-auto px-4 text-center text-slate-500 text-sm">
           <p>由 Next.js + AI 驱动 · 本地处理，保护隐私</p>
+          <p className="mt-2">需要帮助？请联系 support@example.com</p>
         </div>
       </footer>
     </div>
