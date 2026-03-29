@@ -1,69 +1,76 @@
 #!/bin/bash
 
-# BG Remover - Cloudflare 部署脚本
+# ============================================
+#  Cloudflare Pages 标准部署脚本
+#  基于2026年3月29日成功验证的部署方式
+# ============================================
 
-echo "🚀 BG Remover 部署助手"
-echo "======================"
-echo "架构：Next.js 静态 + Cloudflare Workers"
+set -e
+
+echo ""
+echo "🚀 BG Remover - Cloudflare Pages 部署"
+echo "========================================"
 echo ""
 
-# 检查是否安装了 wrangler
-if ! command -v wrangler &> /dev/null; then
-    echo "❌ wrangler 未安装"
-    echo "安装命令：pnpm add -D wrangler"
-    exit 1
+# --------------------------
+# 配置信息
+# --------------------------
+export CLOUDFLARE_EMAIL="yangyong900829@gmail.com"
+export CLOUDFLARE_API_KEY="cfk_6WREwnbWbd9PG3sLm91Udh5EMjqpdj2vd52p6SD725bcdff5"
+export CLOUDFLARE_ACCOUNT_ID="765b6d5d0026cb618e703a30fe28f383"
+PROJECT_NAME="bg-remover"
+BUILD_DIR="out"
+
+echo "📋 项目配置："
+echo "   - 项目名称: $PROJECT_NAME"
+echo "   - 构建目录: $BUILD_DIR"
+echo "   - 账户邮箱: $CLOUDFLARE_EMAIL"
+echo ""
+
+# --------------------------
+# 步骤1: 检查构建目录
+# --------------------------
+echo "🔍 步骤1: 检查构建目录..."
+if [ ! -d "$BUILD_DIR" ]; then
+    echo "   ⚠️  构建目录不存在，开始构建..."
+    npm run build
+    echo "   ✅ 构建完成"
+else
+    echo "   ✅ 构建目录已存在"
 fi
-
-echo "📦 安装依赖..."
-pnpm install
-
-echo ""
-echo "🔧 构建前端..."
-pnpm build
-
-echo ""
-echo "📊 项目信息："
-echo "  - 每月免费额度：50 张图片"
-echo "  - 最大文件大小：10MB"
-echo "  - 支持格式：JPG、PNG、WebP"
-echo "  - 后端：Cloudflare Workers（内存处理）"
 echo ""
 
-echo "🌐 部署步骤："
-echo ""
-echo "1. 获取 remove.bg API 密钥："
-echo "   https://www.remove.bg/api"
-echo ""
-echo "2. 部署 Worker："
-echo "   pnpm wrangler login"
-echo "   pnpm wrangler secret put REMOVE_BG_API_KEY"
-echo "   pnpm wrangler deploy"
-echo ""
-echo "3. 部署前端到 Cloudflare Pages："
-echo "   - 推送代码到 GitHub"
-echo "   - 在 Cloudflare Dashboard 创建 Pages 项目"
-echo "   - 构建命令：pnpm build"
-echo "   - 输出目录：out"
-echo ""
-echo "4. 配置域名（可选）："
-echo "   - DNS CNAME 记录"
-echo "   - Pages 自定义域名"
-echo "   - Worker 路由"
+# --------------------------
+# 步骤2: 配置wrangler
+# --------------------------
+echo "🔧 步骤2: 配置wrangler..."
+mkdir -p ~/.wrangler/config
+
+cat > ~/.wrangler/config/default.toml <<EOF
+[cloudflare]
+email = "$CLOUDFLARE_EMAIL"
+api_key = "$CLOUDFLARE_API_KEY"
+account_id = "$CLOUDFLARE_ACCOUNT_ID"
+EOF
+
+echo "   ✅ wrangler配置已创建"
 echo ""
 
-echo "💰 成本估算："
-echo "  ✓ Cloudflare Workers：10万次/天免费"
-echo "  ✓ Cloudflare Pages：无限请求免费"
-echo "  ✓ remove.bg API：50张/月免费"
-echo "  → 个人使用：基本零成本"
+# --------------------------
+# 步骤3: 执行部署
+# --------------------------
+echo "🌐 步骤3: 部署到Cloudflare Pages..."
+echo "   执行: npx wrangler pages deploy $BUILD_DIR --project-name=$PROJECT_NAME"
 echo ""
 
-echo "🎉 准备就绪！"
+npx wrangler pages deploy "$BUILD_DIR" --project-name="$PROJECT_NAME"
+
 echo ""
-echo "本地测试："
-echo "  前端：pnpm dev"
-echo "  Worker：pnpm wrangler dev"
+echo "🎉 部署成功！"
 echo ""
-echo "访问地址："
-echo "  - 本地：http://localhost:3000"
-echo "  - Worker 开发：http://localhost:8787"
+echo "🎯 访问地址："
+echo "   - 最新版本: 查看上面显示的临时URL"
+echo "   - 主域名: https://www.alltoolsimagebgremove.shop"
+echo ""
+echo "⏰ 等待1-2分钟后测试功能"
+echo ""

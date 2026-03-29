@@ -1,6 +1,3 @@
-name = "bg-remover-worker"
-main = "worker/index.ts"
+name = "bg-remover"
+pages_build_output_dir = "./out"
 compatibility_date = "2025-03-21"
-
-[vars]
-REMOVE_BG_API_KEY = "oFdX2c6ARDvKhvVsAp19mheV"
