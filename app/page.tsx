@@ -22,14 +22,42 @@ export default function Home() {
   const [userName, setUserName] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
 
-  // 处理 OAuth 回调
+  // 处理 OAuth 回调和恢复登录状态
   useEffect(() => {
     try {
-      // 检查 URL 中是否有 OAuth 响应
-      const hash = window.location.hash.substring(1);
-      if (!hash) return;
+      // 1. 先尝试从 localStorage 恢复登录状态
+      const savedLoginState = localStorage.getItem('bgRemover_loginState');
+      if (savedLoginState) {
+        try {
+          const state = JSON.parse(savedLoginState);
+          if (state.isLoggedIn && state.userEmail) {
+            setIsLoggedIn(true);
+            setUserEmail(state.userEmail);
+            setUserName(state.userName || state.userEmail.split('@')[0]);
+            console.log('从localStorage恢复登录状态:', state.userEmail);
+          }
+        } catch (e) {
+          console.warn('解析登录状态失败:', e);
+          localStorage.removeItem('bgRemover_loginState');
+        }
+      }
       
-      const params = new URLSearchParams(hash);
+      // 2. 再检查 URL 中是否有 OAuth 响应（支持hash和search两种方式）
+      let params: URLSearchParams;
+      
+      // 先检查hash（#后面）
+      const hash = window.location.hash.substring(1);
+      if (hash) {
+        params = new URLSearchParams(hash);
+        console.log('从hash获取OAuth参数');
+      } 
+      // 再检查search（?后面）
+      else {
+        const search = window.location.search.substring(1);
+        if (!search) return; // 没有OAuth参数，直接返回
+        params = new URLSearchParams(search);
+        console.log('从search获取OAuth参数');
+      }
       
       const accessToken = params.get('access_token');
       const idToken = params.get('id_token');
@@ -50,45 +78,58 @@ export default function Home() {
         return;
       }
       
-      if (accessToken && idToken) {
-        // 安全地解码 ID Token 获取用户信息
-        try {
-          // JWT 解码 - 安全处理
-          const tokenParts = idToken.split('.');
-          if (tokenParts.length !== 3) {
-            console.warn('ID Token 格式不正确');
-            return;
+      if (accessToken) {
+        // 使用access_token获取用户信息
+        console.log('使用access_token获取用户信息...');
+        
+        fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('获取用户信息失败');
           }
+          return response.json();
+        })
+        .then(userInfo => {
+          console.log('获取到的用户信息:', userInfo);
           
-          // 解码 base64 URL
-          const payloadBase64 = tokenParts[1].replace(/-/g, '+').replace(/_/g, '/');
-          const payloadJson = decodeURIComponent(atob(payloadBase64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
-          
-          const payload = JSON.parse(payloadJson);
-          
-          if (payload && payload.email) {
+          if (userInfo && userInfo.email) {
             setIsLoggedIn(true);
-            setUserEmail(payload.email);
-            setUserName(payload.name || payload.email.split('@')[0]);
+            setUserEmail(userInfo.email);
+            setUserName(userInfo.name || userInfo.email.split('@')[0]);
+            
+            // 保存登录状态到 localStorage
+            const loginState = {
+              isLoggedIn: true,
+              userEmail: userInfo.email,
+              userName: userInfo.name || userInfo.email.split('@')[0],
+              timestamp: Date.now()
+            };
+            localStorage.setItem('bgRemover_loginState', JSON.stringify(loginState));
+            console.log('登录状态已保存到localStorage');
             
             // 清除 URL 中的 OAuth 参数
             window.history.replaceState({}, document.title, window.location.pathname);
             
-            console.log('登录成功:', payload.email);
+            console.log('登录成功:', userInfo.email);
             
-            // 显示欢迎消息
-            setShowWelcome(true);
-            setTimeout(() => setShowWelcome(false), 5000);
+            // 显示欢迎消息（防止重复）
+            if (!showWelcome) {
+              setShowWelcome(true);
+              setTimeout(() => setShowWelcome(false), 4000);
+            }
             
             // 清除错误
             setError(null);
           }
-        } catch (err) {
-          console.error('解析 token 失败:', err);
+        })
+        .catch(err => {
+          console.error('获取用户信息失败:', err);
           setError('登录处理失败，请重试');
-        }
+        });
       }
     } catch (err) {
       console.error('OAuth 处理出错:', err);
@@ -172,7 +213,9 @@ export default function Home() {
     setIsLoggedIn(false);
     setUserEmail(null);
     setUserName(null);
-    // 这里可以添加清除 cookie/localStorage 的逻辑
+    // 清除 localStorage 中的登录状态
+    localStorage.removeItem('bgRemover_loginState');
+    console.log('已退出登录，localStorage已清除');
   };
 
   const processImage = async () => {
@@ -235,7 +278,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* 欢迎提示 */}
       {showWelcome && (
-        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+        <div className="fixed bottom-4 right-4 z-50 animate-slide-in">
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 shadow-lg flex items-center gap-3 max-w-sm">
             <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
               <Check className="w-5 h-5 text-green-600" />
@@ -332,13 +375,13 @@ export default function Home() {
               
               {isLoggedIn ? (
                 <div className="mt-6">
-                  <div className="inline-flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl">
-                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                      <User className="w-4 h-4 text-green-600" />
+                  <div className="inline-flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl shadow-sm">
+                    <div className="w-10 h-10 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold">
+                      {(userName || userEmail || 'U')[0].toUpperCase()}
                     </div>
                     <div className="text-left">
-                      <p className="font-semibold text-green-800">欢迎，{userName}！</p>
-                      <p className="text-sm text-green-700">已解锁会员功能</p>
+                      <p className="font-bold text-green-900">欢迎回来，{userName}！</p>
+                      <p className="text-sm text-green-700">已登录 · 享受完整功能</p>
                     </div>
                   </div>
                 </div>
