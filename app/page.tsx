@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, Image as ImageIcon, Download, RefreshCw, X, CheckCircle2, LogIn } from 'lucide-react';
+import { Upload, Image as ImageIcon, Download, RefreshCw, X, CheckCircle2, LogIn, LogOut, User, Check, Bell } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -19,6 +19,8 @@ export default function Home() {
   const [showComparison, setShowComparison] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   // 处理 OAuth 回调
   useEffect(() => {
@@ -69,13 +71,18 @@ export default function Home() {
           if (payload && payload.email) {
             setIsLoggedIn(true);
             setUserEmail(payload.email);
+            setUserName(payload.name || payload.email.split('@')[0]);
             
             // 清除 URL 中的 OAuth 参数
             window.history.replaceState({}, document.title, window.location.pathname);
             
             console.log('登录成功:', payload.email);
             
-            // 显示成功消息
+            // 显示欢迎消息
+            setShowWelcome(true);
+            setTimeout(() => setShowWelcome(false), 5000);
+            
+            // 清除错误
             setError(null);
           }
         } catch (err) {
@@ -164,6 +171,7 @@ export default function Home() {
   const handleLogout = () => {
     setIsLoggedIn(false);
     setUserEmail(null);
+    setUserName(null);
     // 这里可以添加清除 cookie/localStorage 的逻辑
   };
 
@@ -225,6 +233,27 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* 欢迎提示 */}
+      {showWelcome && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 shadow-lg flex items-center gap-3 max-w-sm">
+            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <Check className="w-5 h-5 text-green-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-green-900">欢迎回来，{userName}！</p>
+              <p className="text-sm text-green-700">已成功登录</p>
+            </div>
+            <button
+              onClick={() => setShowWelcome(false)}
+              className="text-green-400 hover:text-green-600 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -234,26 +263,43 @@ export default function Home() {
             <span className="font-bold text-xl bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
               BG Remover
             </span>
+            {/* 登录状态徽章 */}
+            {isLoggedIn && (
+              <span className="ml-2 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                已登录
+              </span>
+            )}
           </div>
           
           <div className="flex items-center gap-4">
             {isLoggedIn ? (
               <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-600">{userEmail}</span>
+                {/* 用户信息卡片 */}
+                <div className="flex items-center gap-3 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                    {(userName || userEmail || 'U')[0].toUpperCase()}
+                  </div>
+                  <div className="hidden sm:block">
+                    <p className="text-sm font-semibold text-slate-900">{userName}</p>
+                    <p className="text-xs text-slate-500">{userEmail}</p>
+                  </div>
+                </div>
                 <button
                   onClick={handleLogout}
-                  className="px-4 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-white text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-50 hover:text-red-600 hover:border-red-300 transition-all"
                 >
-                  退出登录
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">退出登录</span>
                 </button>
               </div>
             ) : (
               <button
                 onClick={handleGoogleLogin}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-slate-700 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 transition-colors shadow-sm"
+                className="flex items-center gap-2 px-5 py-2.5 bg-white text-slate-700 font-medium rounded-lg border border-slate-300 hover:bg-slate-50 hover:border-purple-400 hover:text-purple-600 transition-all shadow-sm"
               >
                 <LogIn className="w-4 h-4" />
-                使用 Google 登录
+                <span>使用 Google 登录</span>
               </button>
             )}
             
@@ -284,7 +330,19 @@ export default function Home() {
                 每月前 50 张免费
               </div>
               
-              {!isLoggedIn && (
+              {isLoggedIn ? (
+                <div className="mt-6">
+                  <div className="inline-flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl">
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <User className="w-4 h-4 text-green-600" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-semibold text-green-800">欢迎，{userName}！</p>
+                      <p className="text-sm text-green-700">已解锁会员功能</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
                 <div className="mt-6">
                   <p className="text-sm text-slate-500 mb-2">登录后可享受更多功能：</p>
                   <ul className="text-sm text-slate-600 text-left inline-block">
