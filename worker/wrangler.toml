@@ -1,0 +1,15 @@
+name = "bg-remover-worker"
+main = "index.ts"
+compatibility_date = "2025-03-21"
+
+# D1 数据库配置
+[[d1_databases]]
+binding = "DB"
+database_name = "bg-remover-users"
+database_id = "6ca89bac-6625-4b5f-b303-30d768827b53"
+
+# PayPal 环境变量（沙箱环境 - 仅作备份，真实配置在Cloudflare Dashboard）
+[vars]
+PAYPAL_MODE = "sandbox"
+# 注意：真实环境的Client ID、Secret和Webhook ID请在Cloudflare Dashboard的Secrets中配置
+# 不要在wrangler.toml中存储真实环境的敏感信息！

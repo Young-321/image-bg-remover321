@@ -1,151 +1,12 @@
 /**
- * Cloudflare Worker for background removal with OAuth and PayPal support
- * 处理图片移除、Google OAuth 认证和 PayPal 支付
+ * Cloudflare Worker for background removal with OAuth support
+ * 处理图片移除和 Google OAuth 认证
  */
-
-// PayPal 服务类（内联版本）
-class PayPalService {
-  private config: {
-    mode: 'sandbox' | 'live';
-    clientId: string;
-    clientSecret: string;
-    webhookId: string;
-  };
-  private accessToken: any = null;
-  private tokenExpiresAt: number = 0;
-
-  constructor(config: any) {
-    this.config = config;
-  }
-
-  private getBaseUrl(): string {
-    return this.config.mode === 'sandbox' 
-      ? 'https://api-m.sandbox.paypal.com'
-      : 'https://api-m.paypal.com';
-  }
-
-  private async getAccessToken(): Promise<string> {
-    const now = Date.now();
-    
-    if (this.accessToken && now < this.tokenExpiresAt - 60000) {
-      return this.accessToken.access_token;
-    }
-
-    const auth = btoa(`${this.config.clientId}:${this.config.clientSecret}`);
-    
-    const response = await fetch(`${this.getBaseUrl()}/v1/oauth2/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${auth}`,
-      },
-      body: 'grant_type=client_credentials',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`PayPal auth failed: ${response.status} - ${errorText}`);
-    }
-
-    this.accessToken = await response.json();
-    this.tokenExpiresAt = now + (this.accessToken.expires_in * 1000);
-    
-    return this.accessToken.access_token;
-  }
-
-  async createOrder(
-    amount: number,
-    currency: string = 'USD',
-    description: string,
-    customId?: string,
-    invoiceId?: string
-  ): Promise<any> {
-    const accessToken = await this.getAccessToken();
-
-    const orderData = {
-      intent: 'CAPTURE',
-      purchase_units: [
-        {
-          description,
-          custom_id: customId,
-          invoice_id: invoiceId,
-          amount: {
-            currency_code: currency,
-            value: amount.toFixed(2),
-          },
-        },
-      ],
-      payment_source: {
-        paypal: {
-          experience_context: {
-            payment_method_preference: 'IMMEDIATE_PAYMENT_REQUIRED',
-            brand_name: 'BG Remover',
-            locale: 'zh-CN',
-            landing_page: 'LOGIN',
-            user_action: 'PAY_NOW',
-            return_url: 'https://www.alltoolsimagebgremove.shop/pricing?success=true',
-            cancel_url: 'https://www.alltoolsimagebgremove.shop/pricing?cancelled=true',
-          },
-        },
-      },
-    };
-
-    const response = await fetch(`${this.getBaseUrl()}/v2/checkout/orders`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(orderData),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`PayPal create order failed: ${response.status} - ${errorText}`);
-    }
-
-    return await response.json();
-  }
-
-  async captureOrder(orderId: string): Promise<any> {
-    const accessToken = await this.getAccessToken();
-
-    const response = await fetch(
-      `${this.getBaseUrl()}/v2/checkout/orders/${orderId}/capture`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`PayPal capture order failed: ${response.status} - ${errorText}`);
-    }
-
-    const result = await response.json();
-    return result.purchase_units[0].payments.captures[0];
-  }
-
-  getClientConfig() {
-    return {
-      mode: this.config.mode,
-      clientId: this.config.clientId,
-    };
-  }
-}
 
 export interface Env {
   REMOVE_BG_API_KEY: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
-  PAYPAL_MODE: 'sandbox' | 'live';
-  PAYPAL_CLIENT_ID: string;
-  PAYPAL_CLIENT_SECRET: string;
-  PAYPAL_WEBHOOK_ID: string;
 }
 
 // 生成随机字符串
@@ -184,197 +45,15 @@ export default {
         headers: corsHeaders,
       });
     }
-
-    // 初始化 PayPal 服务
-    const paypalService = new PayPalService({
-      mode: env.PAYPAL_MODE || 'sandbox',
-      clientId: env.PAYPAL_CLIENT_ID || '',
-      clientSecret: env.PAYPAL_CLIENT_SECRET || '',
-      webhookId: env.PAYPAL_WEBHOOK_ID || '',
-    });
-
-    // ========== PayPal 支付相关路由 ==========
     
-    // 获取 PayPal 配置
-    if (path === '/paypal/config' && request.method === 'GET') {
-      return new Response(JSON.stringify(paypalService.getClientConfig()), {
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
-      });
-    }
-
-    // 创建 PayPal 订单
-    if (path === '/paypal/create-order' && request.method === 'POST') {
-      try {
-        const body = await request.json();
-        const { amount, currency = 'USD', description, planId, userId } = body;
-
-        if (!amount || !description) {
-          return new Response(JSON.stringify({
-            error: 'Missing required fields',
-            message: 'amount and description are required',
-          }), {
-            status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders,
-            },
-          });
-        }
-
-        const orderId = `order_${generateRandomString(16)}`;
-        const invoiceId = `inv_${Date.now()}`;
-
-        const paypalOrder = await paypalService.createOrder(
-          amount,
-          currency,
-          description,
-          JSON.stringify({ planId, userId, orderId }),
-          invoiceId
-        );
-
-        // 支持多种 link type: 'approve' 或 'payer-action'
-        const approveLink = paypalOrder.links?.find((link: any) => 
-          link.rel === 'approve' || link.rel === 'payer-action'
-        )?.href;
-
-        return new Response(JSON.stringify({
-          success: true,
-          orderId: paypalOrder.id,
-          approvalLink: approveLink,
-        }), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        });
-
-      } catch (error) {
-        console.error('PayPal create order error:', error);
-        return new Response(JSON.stringify({
-          error: 'Failed to create PayPal order',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        });
-      }
-    }
-
-    // 捕获 PayPal 订单（完成支付）
-    if (path === '/paypal/capture-order' && request.method === 'POST') {
-      try {
-        const body = await request.json();
-        const { orderId } = body;
-
-        if (!orderId) {
-          return new Response(JSON.stringify({
-            error: 'Missing orderId',
-          }), {
-            status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders,
-            },
-          });
-        }
-
-        const capture = await paypalService.captureOrder(orderId);
-
-        // 这里应该：
-        // 1. 更新订单状态为已支付
-        // 2. 给用户添加配额
-        // 3. 记录交易
-
-        return new Response(JSON.stringify({
-          success: true,
-          captureId: capture.id,
-          status: capture.status,
-          amount: capture.amount,
-        }), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        });
-
-      } catch (error) {
-        console.error('PayPal capture order error:', error);
-        return new Response(JSON.stringify({
-          error: 'Failed to capture PayPal order',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        });
-      }
-    }
-
-    // PayPal Webhook
-    if (path === '/paypal-webhook' && request.method === 'POST') {
-      try {
-        const body = await request.text();
-        const headers = Object.fromEntries(request.headers.entries());
-        const event = JSON.parse(body);
-
-        console.log('PayPal webhook received:', event.event_type);
-
-        // 验证 webhook（简化版，生产环境应该完整验证）
-        // 这里应该调用 paypalService.verifyWebhookSignature()
-
-        // 处理支付完成事件
-        if (event.event_type === 'PAYMENT.CAPTURE.COMPLETED') {
-          const capture = event.resource;
-          const customId = capture.custom_id;
-          
-          if (customId) {
-            try {
-              const { planId, userId, orderId } = JSON.parse(customId);
-              console.log('Processing completed payment:', { planId, userId, orderId });
-              
-              // 这里应该：
-              // 1. 更新数据库中的订单状态
-              // 2. 给用户添加配额
-              // 3. 发送确认邮件
-            } catch (e) {
-              console.error('Failed to parse custom_id:', customId);
-            }
-          }
-        }
-
-        return new Response(JSON.stringify({ success: true }), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        });
-
-      } catch (error) {
-        console.error('PayPal webhook error:', error);
-        return new Response(JSON.stringify({ error: 'Webhook processing failed' }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        });
-      }
-    }
-
-    // ========== OAuth 路由（保持原有功能） ==========
-    
+    // OAuth 路由
     if (path === '/auth/login') {
+      // 生成 state 参数
       const state = generateRandomString(16);
+      // ✅ 使用自定义域名
       const redirectUri = 'https://www.alltoolsimagebgremove.shop/auth/callback';
       
+      // 构建 Google OAuth URL
       const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       authUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID || '492775448989-f5oafsq8cum432o5f27foo8921mgplqb.apps.googleusercontent.com');
       authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -384,6 +63,7 @@ export default {
       authUrl.searchParams.set('prompt', 'consent');
       authUrl.searchParams.set('state', state);
       
+      // 设置 state cookie
       const stateCookie = `oauth_state=${state}; HttpOnly; Path=/; Max-Age=300; SameSite=Lax; Secure`;
       
       return new Response(null, {
@@ -396,11 +76,13 @@ export default {
       });
       
     } else if (path === '/auth/callback') {
+      // 处理回调
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
       const cookies = request.headers.get('Cookie') || '';
       const cookieState = getCookieValue(cookies, 'oauth_state');
       
+      // 验证 state
       if (!state || !cookieState || state !== cookieState) {
         return new Response('Invalid OAuth state. Please try logging in again.', {
           status: 400,
@@ -424,6 +106,7 @@ export default {
       const redirectUri = `${url.origin}/auth/callback`;
       
       try {
+        // 交换 token
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
           headers: {
@@ -452,6 +135,7 @@ export default {
         
         const tokenData = await tokenResponse.json();
         
+        // 获取用户信息
         const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: {
             'Authorization': `Bearer ${tokenData.access_token}`,
@@ -470,17 +154,21 @@ export default {
         
         const userInfo = await userInfoResponse.json();
         
+        // 创建会话 token
         const sessionToken = generateRandomString(32);
         const sessionData = {
           userId: userInfo.sub,
           email: userInfo.email,
           name: userInfo.name,
           picture: userInfo.picture,
-          expires: Date.now() + 24 * 60 * 60 * 1000,
+          expires: Date.now() + 24 * 60 * 60 * 1000, // 24小时
         };
         
+        // 在实际应用中，这里应该存储 sessionData 到 KV
+        // 简化处理：编码到 cookie 中（注意：这不是安全的最佳实践）
         const sessionCookie = `user_session=${encodeURIComponent(JSON.stringify(sessionData))}; HttpOnly; Path=/; Max-Age=86400; SameSite=Lax; Secure`;
         
+        // 重定向回前端
         const frontendUrl = 'https://www.alltoolsimagebgremove.shop';
         return new Response(null, {
           status: 302,
@@ -503,6 +191,7 @@ export default {
       }
       
     } else if (path === '/auth/logout') {
+      // 退出登录
       const logoutCookie = 'user_session=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure';
       return new Response(null, {
         status: 302,
@@ -514,6 +203,7 @@ export default {
       });
       
     } else if (path === '/auth/status') {
+      // 检查登录状态
       const cookies = request.headers.get('Cookie') || '';
       const sessionCookie = getCookieValue(cookies, 'user_session');
       
@@ -533,6 +223,7 @@ export default {
             },
           });
         } catch {
+          // 如果解析失败，视为未登录
         }
       }
       
@@ -546,7 +237,9 @@ export default {
       });
       
     } else if (request.method === 'POST' && path === '/') {
+      // 原有的图片处理逻辑
       try {
+        // 检查 API 密钥
         if (!env.REMOVE_BG_API_KEY || env.REMOVE_BG_API_KEY === 'your-api-key-here') {
           return new Response(JSON.stringify({
             error: 'Server configuration error',
@@ -560,6 +253,7 @@ export default {
           });
         }
 
+        // 解析 FormData
         const formData = await request.formData();
         const imageFile = formData.get('file') as File | null;
         const imageFileAlt = formData.get('image_file') as File | null;
@@ -578,6 +272,7 @@ export default {
           });
         }
 
+        // 检查文件类型
         const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
         if (!validTypes.includes(image.type)) {
           return new Response(JSON.stringify({
@@ -593,7 +288,8 @@ export default {
           });
         }
 
-        const maxSize = 10 * 1024 * 1024;
+        // 检查文件大小（10MB 限制）
+        const maxSize = 10 * 1024 * 1024; // 10MB
         if (image.size > maxSize) {
           return new Response(JSON.stringify({
             error: 'File too large',
@@ -610,10 +306,12 @@ export default {
 
         console.log(`Processing image: ${image.name} (${image.size} bytes)`);
 
+        // 创建 FormData 发送到 remove.bg
         const removeBgFormData = new FormData();
         removeBgFormData.append('image_file', image);
         removeBgFormData.append('size', 'auto');
 
+        // 调用 remove.bg API
         const removeBgResponse = await fetch('https://api.remove.bg/v1.0/removebg', {
           method: 'POST',
           headers: {
@@ -622,6 +320,7 @@ export default {
           body: removeBgFormData,
         });
 
+        // 处理 remove.bg 响应
         if (!removeBgResponse.ok) {
           const errorText = await removeBgResponse.text();
           console.error('Remove.bg API error:', removeBgResponse.status, errorText);
@@ -660,8 +359,10 @@ export default {
           });
         }
 
+        // 获取处理后的图片
         const resultBuffer = await removeBgResponse.arrayBuffer();
 
+        // 返回图片
         return new Response(resultBuffer, {
           headers: {
             'Content-Type': 'image/png',
@@ -689,7 +390,8 @@ export default {
       }
     }
 
-    return new Response('BG Remover API with OAuth + PayPal\nAvailable endpoints:\n- POST / (image processing)\n- GET /auth/login (OAuth login)\n- GET /auth/callback (OAuth callback)\n- GET /auth/logout (logout)\n- GET /auth/status (check login status)\n- GET /paypal/config (get PayPal config)\n- POST /paypal/create-order (create PayPal order)\n- POST /paypal/capture-order (capture PayPal order)\n- POST /paypal-webhook (PayPal webhook)', {
+    // 默认响应
+    return new Response('BG Remover API with OAuth\nAvailable endpoints:\n- POST / (image processing)\n- GET /auth/login (OAuth login)\n- GET /auth/callback (OAuth callback)\n- GET /auth/logout (logout)\n- GET /auth/status (check login status)', {
       headers: {
         'Content-Type': 'text/plain',
         ...corsHeaders,
